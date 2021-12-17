@@ -19,7 +19,7 @@ import torch.optim as optim
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from PIL.Image import Image
+from PIL import Image
 from torch.utils.data import Dataset
 from tqdm import tqdm
 

@@ -9,6 +9,7 @@ import os
 import shutil
 import time
 import random
+from typing import Tuple, Any
 
 import torch
 import torch.nn as nn
@@ -18,6 +19,10 @@ import torch.optim as optim
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+from PIL.Image import Image
+from torch.utils.data import Dataset
+from tqdm import tqdm
+
 import models.cifar as models
 
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
@@ -98,6 +103,26 @@ if use_cuda:
 
 best_acc = 0  # best test accuracy
 
+class Tiny_Imagenet_Dataset(Dataset):
+    def __init__(self, fns, targets, tfms) -> None:
+        self.fns = fns
+        self.targets = targets
+        self.tfms = tfms
+
+        self.images = []
+        for filename in tqdm(self.fns):
+            img = Image.open(filename)
+            img = self.tfms(img)
+            self.images.append(img)
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        target = self.targets[index]
+        img = self.images[index]
+        return img, target
+
+    def __len__(self) -> int:
+        return len(self.images)
+
 def main():
     global best_acc
     start_epoch = args.start_epoch  # start from epoch 0 or last checkpoint epoch
@@ -120,18 +145,38 @@ def main():
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
-    if args.dataset == 'cifar10':
-        dataloader = datasets.CIFAR10
-        num_classes = 10
-    else:
-        dataloader = datasets.CIFAR100
-        num_classes = 100
 
+    num_classes = 200
 
-    trainset = dataloader(root='./data', train=True, download=True, transform=transform_train)
+    print(os.getcwd())
+
+    # generate integer labels
+    wnid2target = {}
+    with open('../thesis_schellhammer/HCC_Learn_to_complement_humans/data/tiny-imagenet-200/wnids.txt', 'r') as f:
+        for i, line in enumerate(f.readlines()):
+            wnid2target[line.strip()] = i
+
+    # create lists with filenames and targets for val images
+    val_fns = []
+    val_targets = []
+    with open('../thesis_schellhammer/HCC_Learn_to_complement_humans/data/tiny-imagenet-200/val/val_annotations.txt', 'r') as f:
+        for line in f.readlines():
+            split_line = line.split('\t')
+            val_fns.append("../thesis_schellhammer/HCC_Learn_to_complement_humans/data/tiny32x32/val/" + split_line[0])
+            val_targets.append(wnid2target[split_line[1]])
+
+    # create lists with filenames and targets for train images
+    train_fns = []
+    train_targets = []
+    for wnid in os.listdir('../thesis_schellhammer/HCC_Learn_to_complement_humans/data/tiny-imagenet-200/train/'):
+        for fn in os.listdir('../thesis_schellhammer/HCC_Learn_to_complement_humans/data/tiny-imagenet-200/train/' + wnid + '/images'):
+            train_fns.append("../thesis_schellhammer/HCC_Learn_to_complement_humans/data/tiny32x32/train/" + fn)
+            train_targets.append(wnid2target[wnid])
+
+    trainset = Tiny_Imagenet_Dataset(train_fns, train_targets, transform_train)
+    testset = Tiny_Imagenet_Dataset(val_fns, val_targets, transform_test)
+
     trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers)
-
-    testset = dataloader(root='./data', train=False, download=False, transform=transform_test)
     testloader = data.DataLoader(testset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
 
     # Model
@@ -245,7 +290,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         data_time.update(time.time() - end)
 
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda(async=True)
+            inputs, targets = inputs.cuda(), targets.cuda(non_blocking=True)
         inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
         # compute output
@@ -254,9 +299,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
-        losses.update(loss.data[0], inputs.size(0))
-        top1.update(prec1[0], inputs.size(0))
-        top5.update(prec5[0], inputs.size(0))
+        losses.update(loss.item(), inputs.size(0))
+        top1.update(prec1.item(), inputs.size(0))
+        top5.update(prec5.item(), inputs.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()

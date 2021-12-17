@@ -15,8 +15,19 @@ def accuracy(output, target, topk=(1,)):
     correct = pred.eq(target.view(1, -1).expand_as(pred))
     print(correct.shape)
 
+    """import torch
+    a = torch.Tensor([[1,2,3,4],
+                      [2,3,2,3],
+                      [2,3,2,3],
+                      [2,3,2,3],
+                      [2,3,2,3]])
+
+    print(a.shape)"""
+
     res = []
     for k in topk:
+        print(k)
+        print(correct[:k].shape)
         correct_k = correct[:k].view(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
